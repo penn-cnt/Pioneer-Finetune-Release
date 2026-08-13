@@ -5,7 +5,7 @@ Code for fine-tuning and evaluation of seizure-detection models on continuous EE
 This is the research code accompanying our preprint:
 
 > **An Implantable Device that Converses with Patients and Learns to Co-Manage Epilepsy.**
-> medRxiv (2026). https://doi.org/10.64898/2026.01.26.26344234
+> medRxiv (2026). [https://doi.org/10.64898/2026.01.26.26344234](https://doi.org/10.64898/2026.01.26.26344234)
 
 See also the companion repositories: [Pioneer Chat Interface](https://github.com/penn-cnt/Pioneer-Chat-Release) (patient-facing chat UI) and [Pioneer Databricks](https://github.com/penn-cnt/Pioneer-Databricks-Release) (streaming feature pipeline).
 
@@ -33,12 +33,14 @@ flowchart LR
 
 
 
-1. Extract clinician labelled ground truth seizures and patient self-reported annotations from raw EMU recordings. LLM annotations need to be extracted separately.
+1. Extract clinician labelled ground truth seizures and patient self-reported annotations from raw EMU recordings. Human-AI platform annotations need to be extracted separately.
 2. Preprocess continuous EDF clips into SQLite-backed tables.
 3. Build ground truth and fine-tuning labels time-aligned with model predictions.
 4. Evaluate a fixed baseline model
 5. Finetune and evaluate fine-tuned models.
 6. Aggregate results and generate figures for manuscript.
+
+
 
 ## Repository structure
 
@@ -46,7 +48,6 @@ flowchart LR
 pioneer_finetune/
 ├── 00_extract_annotations.py   # Annotation export & trending plots
 ├── 01_preprocessing.py           # EDF → preprocessed clips / SQLite
-├── 01_preprocessing_valclips.py  # Validation-clip preprocessing variant
 ├── 02_extract_labels.py          # Label intervals for training
 ├── 03_eval_model.py              # Baseline / checkpoint evaluation
 ├── 04_finetune.py                # Sequential finetuning + inline eval
@@ -61,6 +62,8 @@ pioneer_finetune/
     └── utils.py                  # EEG I/O, filtering, SQLite helpers
 ```
 
+
+
 ### Models
 
 Model files and artifacts need to be download separately.
@@ -70,11 +73,21 @@ Model files and artifacts need to be download separately.
 - Model functions need to be put under `funcs/SPaRCNet` , `funcs/WVNT` , `funcs/ONCET`
 - Pretrained model need to be put under `models/base_model.pt` , `models/wvnt_base_model.pt, models/oncet_base_model.pt`
 
+
+
 ## Data
 
-- Data should be stored in a separate rawdata folder as EDF files `../rawdata/patient_id/files.edf`
-- Seizure annotations and patient self-reports are assumed to be embedded in EDF files as annotations
-- LLM annotations need to be downloaded separately from databricks and stored into `annots/patient_id/databricks_events.csv`
+- Raw EEG Data and intermediate seizure probability data needed to replicate manuscript results are released on Pennsieve under [https://doi.org/10.26275/ju7h-bo8u](https://doi.org/10.26275/ju7h-bo8u)
+- Download contents in`raw_data`  from the pennsieve dataset and store under root
+
+```
+pioneer_finetune/
+├── edf/
+├── annots/
+└── participants.tsv
+```
+
+
 
 ## Requirements
 
@@ -86,6 +99,8 @@ Install example:
 pip install -r requirements.txt
 ```
 
+
+
 ## Usage
 
 Run from the repository root. 
@@ -93,20 +108,24 @@ Run from the repository root.
 ```bash
 # 1. Annotations
 python 00_extract_annotations.py -p all
-python 00_extract_annotations.py -p P001
+python 00_extract_annotations.py -p PennEPI*****
+```
 
+This step work only on EDF files with annotations embeded. This step should be skipped when using released EDFs as products of this step are released as events.
+
+```bash
 # 2. Preprocessing
-python 01_preprocessing.py -p P001
+python 01_preprocessing.py -p PennEPI*****
 
 # 3. Labels
-python 02_extract_labels.py -p P001
+python 02_extract_labels.py -p PennEPI*****
 
 # 4. Baseline evaluation
-python 03_eval_model.py -m base_model -p P001
+python 03_eval_model.py -m base_model -p PennEPI*****
 
 # 5. Finetuning
-python 04_finetune.py -m base_model -p P001 -l patient -uf --unfreeze_stage 1 --setting test
-python 04_finetune.py -m base_model -p P001 -l databricks -uf --unfreeze_stage 1 --setting test
+python 04_finetune.py -m base_model -p PennEPI***** -l patient -uf --unfreeze_stage 1 --setting test
+python 04_finetune.py -m base_model -p PennEPI***** -l databricks -uf --unfreeze_stage 1 --setting test
 
 # 6. Aggregate results
 jupyter notebook 05_aggregate_results.ipynb
@@ -138,6 +157,8 @@ If you use this code or build on it, please cite the preprint:
   url     = {https://doi.org/10.64898/2026.01.26.26344234}
 }
 ```
+
+
 
 ## License
 

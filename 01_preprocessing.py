@@ -21,7 +21,8 @@ from joblib import Parallel, delayed
 
 # paths
 working_dir = os.path.abspath("")
-raw_data_path = "../rawdata"
+raw_data_path = "edf"
+database_path = "data"
 sys.path.append(working_dir)
 sys.path.append(os.path.join(working_dir,'feat_funcs'))
 
@@ -68,13 +69,14 @@ def process_clip(clip, i, t, info, split_n):
     if np.all(np.isnan(clip)):
         return
     start_timestamp = pd.to_datetime(t, unit='us')
-    timestamps = pd.date_range(start=start_timestamp, periods=clip.shape[0], freq=pd.Timedelta(seconds=1/info['samplingFreqRaw']))
+    timestamps = (start_timestamp + pd.to_timedelta(
+        np.arange(clip.shape[0]),
+        unit="ns"
+    ) * (1_000_000_000 / info['samplingFreqRaw'])).round('us')
     clip = pd.DataFrame(clip, columns = info['channelNames'], index = timestamps)
-    # clip_start_sample = int(i * info['samplingFreqRaw'] * split_n)
-    # stamps = list(range(clip_start_sample,clip_start_sample+clip.shape[0],int(info['samplingFreqRaw'])))
+    clip = pd.DataFrame(clip, columns = info['channelNames'], index = timestamps)
     if info['samplingFreqRaw'] == 1024:
         clip = clip.iloc[::2,:]
-        # stamps = stamps[::2]
         timestamps = timestamps[::2]
     timestamps = timestamps.astype(str).tolist()
     preprocessed = prepro.preprocess(clip)
@@ -125,25 +127,18 @@ if __name__ == '__main__':
     for rid in rids:
         print(f'Processing {rid}')
         path = f'{raw_data_path}/{rid}'
-        conn = sqlite3.connect(f'data/{rid}.db')
+        conn = sqlite3.connect(f'{database_path}/{rid}.db')
         files = os.listdir(path)
         files = [f for f in files if f.endswith('.edf')]
         # ____________________preprocess each file__________________________
         for e, f in enumerate(files):
             print(f)
             edf_file_path = os.path.join(path, f)
-            # patient name
-            tmp = re.split(r'[~ _.]',f)
-            patient_name_first = tmp[2]
-            patient_name_last = tmp[0]
-            patient_guid = tmp[3]
             sql_table = rid
             # read data
             reader = EdfWrapper(edf_file_path)
             discont = len(reader.get_discontinuities()) > 0
-            info = {'firstName':patient_name_first,
-                    'lastName':patient_name_last,
-                    'patientGuid':patient_guid, #is actually file_id
+            info = {'patientGuid':rid, #is actually file_id
                     'studyType':'eeg',
                     'xlCreationTime':reader.header['start_datetime'].replace(tzinfo=None),
                     'numberOfChannels':len(reader.read_ts_channel_basic_info()),
@@ -157,28 +152,10 @@ if __name__ == '__main__':
                 info['studyType'] = 'ieeg'
                 info['samplingFreq'] = 512
                 n_jobs = 5
-            ### tmp fix
-            # if not discont and info['studyType'] == 'eeg':
-            #     print('Continuous scalp EEG file, skipping')
-            #     continue
-            # else:
-            #     start_time = info['xlCreationTime']
-            #     stop_time = info['stopTime']
-            #     cursor = conn.cursor()
-            #     cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table'AND name='{rid}'")
-            #     table_exists = cursor.fetchone() is not None
-            #     if table_exists:
-            #         cursor.execute(f"DELETE FROM {rid} WHERE start_timestamp >= '{start_time}' AND start_timestamp < '{stop_time}'")
-            #         conn.commit()
-            ### end of tmp fix
             prepro.fit(info)
-            # dura = (info['stopTime']-info['xlCreationTime']).total_seconds()
-            
-            # n_clips = int(np.floor(dura/preprocess_size))
             start_uutc = int(np.floor(reader.read_ts_channel_basic_info()[0]['start_time']/1e6)*1e6)
             stop_uutc = reader.read_ts_channel_basic_info()[0]['end_time']
             clip_start_utcs = np.arange(start_uutc, stop_uutc, preprocess_size*1e6)#[start_uutc + k*preprocess_size*1e6 for k in range(n_clips)]
-            # clips = [reader.read_ts_channels_uutc(info['channelNames'],[start, min(start+preprocess_size*1e6,start+dura*1e6)]).T for start in clip_start_utcs]
             if info['studyType'] == 'ieeg':
                 chunk_size = 50
                 n_chunk = len(clip_start_utcs)//chunk_size+1
@@ -189,11 +166,6 @@ if __name__ == '__main__':
                         if c is not None:
                             c.to_sql(sql_table, conn, if_exists='append', index=False)
                     del chunks
-                # for e,t in tqdm(enumerate(clip_start_utcs), total=len(clip_start_utcs), desc="Processing clips"):
-                #     c = process_clip(reader.read_ts_channels_uutc(info['channelNames'],[t, t+preprocess_size*1e6]).T, e, t, info, preprocess_size)
-                #     if c is not None:
-                #         c.to_sql(sql_table, conn, if_exists='append', index=False)
-                #     del c
             else:
                 chunks = Parallel(n_jobs=n_jobs)(delayed(process_clip)(reader.read_ts_channels_uutc(info['channelNames'],[t, t+preprocess_size*1e6]).T, e, t, info, preprocess_size) for e, t in tqdm(enumerate(clip_start_utcs), total=len(clip_start_utcs), desc="Processing clips"))
                 for c in chunks:
